@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RUTAMI - Portal Layanan Mandiri Kiosk</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Library MQTT untuk sinkronisasi Realtime Lintas Perangkat (PC/HP) -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
+        .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
+        
+        /* Glassmorphism styling matching the Admin Side */
+        .glass-panel {
+            background: rgba(22, 28, 45, 0.45);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .glowing-circle {
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .glowing-circle:hover {
+            box-shadow: 0 0 25px rgba(59, 130, 246, 0.4);
+            transform: scale(1.05);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-[#090d16] text-[#94a3b8] font-sans antialiased min-h-screen p-4 flex justify-center items-center relative overflow-x-hidden">
+
+    <!-- Glowing Background Decors -->
+    <div class="absolute top-[-10%] left-[-10%] w-[400px] h-[400px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none"></div>
+    <div class="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-purple-600/10 rounded-full blur-[120px] pointer-events-none"></div>
+
+    <!-- MAIN CONTAINER -->
+    <div class="w-full max-w-4xl glass-panel rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row min-h-[620px] relative z-10">
+        
+        <!-- SIDEBAR KIRI -->
+        <aside class="w-full md:w-20 bg-slate-950/40 border-b md:border-b-0 md:border-r border-white/5 p-4 flex md:flex-col justify-between items-center shrink-0">
+            <!-- Avatar Profil Mascot Mido -->
+            <div class="flex md:flex-col items-center gap-3">
+                <div class="relative w-12 h-12 rounded-full border-2 border-amber-500 p-0.5 bg-slate-900 overflow-hidden">
+                    <img src="mido.png.jpeg" onerror="this.onerror=null; this.src='https://placehold.co/100/1e293b/ffffff?text=Mido';" class="w-full h-full rounded-full object-cover" alt="Mido Mascot">
+                    <span class="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#090d16] rounded-full animate-pulse"></span>
+                </div>
+            </div>
+
+            <!-- Tumpukan Tombol Bulat Utilitas Samping -->
+            <div class="flex md:flex-col gap-3">
+                <button onclick="toggleVoiceMute()" id="btn-sound" class="w-10 h-10 rounded-full bg-slate-800/80 hover:bg-blue-600/30 text-white flex items-center justify-center border border-white/5 transition-all shadow-md cursor-pointer" title="Suara Pengumuman">
+                    <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path>
+                    </svg>
+                </button>
+                <button onclick="showHelpToast()" class="w-10 h-10 rounded-full bg-slate-800/80 hover:bg-blue-600/30 text-white flex items-center justify-center border border-white/5 transition-all shadow-md cursor-pointer" title="Bantuan Instan">
+                    <span class="text-blue-400 font-bold text-sm">?</span>
+                </button>
+                <button onclick="resetToHome()" class="w-10 h-10 rounded-full bg-slate-800/80 hover:bg-rose-600/30 text-white flex items-center justify-center border border-white/5 transition-all shadow-md cursor-pointer" title="Kembali ke Menu Utama">
+                    <svg class="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="hidden md:block text-[8px] text-slate-600 font-mono tracking-wider">
+                RUTAMI
+            </div>
+        </aside>
+
+        <!-- KONTEN UTAMA KANAN -->
+        <div class="flex-1 p-6 flex flex-col justify-between relative min-h-[500px]">
+            
+            <!-- HEADER SAMBUTAN -->
+            <header class="flex justify-between items-start border-b border-white/5 pb-4 mb-4">
+                <div>
+                    <span class="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Kantor Imigrasi Bekasi</span>
+                    <h3 class="text-xs text-slate-400 leading-tight">Halo, Selamat Datang di Kiosk Mandiri</h3>
+                    <p class="text-[10px] text-slate-600 font-mono">User ID: Guest#7userbekasi27</p>
+                </div>
+                <div class="text-right">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <span class="w-1.5 h-1.5 mr-1.5 bg-emerald-500 rounded-full animate-ping"></span>
+                        Sistem Aktif
+                    </span>
+                </div>
+            </header>
+
+            <!-- ================= SCREEN 1: MENU UTAMA 3x2 GRID ================= -->
+            <div id="screen-menu-utama" class="flex-1 flex flex-col justify-center items-center py-6">
+                <h2 class="text-2xl font-black text-white tracking-widest uppercase mb-8 text-center bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-300">
+                    MENU UTAMA
+                </h2>
+
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-6 w-full max-w-2xl px-2">
+                    
+                    <!-- MENU 1: SURVEY KEPUASAN -->
+                    <div class="flex flex-col items-center">
+                        <button onclick="openSubScreen('survey')" class="w-20 h-20 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-800 border-2 border-blue-500/30 flex items-center justify-center glowing-circle cursor-pointer">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
+                            </svg>
+                        </button>
+                        <button onclick="openSubScreen('survey')" class="mt-3 bg-slate-800/80 hover:bg-blue-600/20 border border-white/5 text-white font-bold text-[10px] tracking-wider uppercase px-4 py-1.5 rounded-full transition-colors cursor-pointer w-full text-center max-w-[130px]">
+                            IKM SURVEY
+                        </button>
+                    </div>
+
+                    <!-- MENU 2: PENGADUAN -->
+                    <div class="flex flex-col items-center">
+                        <button onclick="openSubScreen('pengaduan')" class="w-20 h-20 rounded-full bg-gradient-to-tr from-rose-600 to-purple-800 border-2 border-rose-500/30 flex items-center justify-center glowing-circle cursor-pointer">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path>
+                            </svg>
+                        </button>
+                        <button onclick="openSubScreen('pengaduan')" class="mt-3 bg-slate-800/80 hover:bg-rose-600/20 border border-white/5 text-white font-bold text-[10px] tracking-wider uppercase px-4 py-1.5 rounded-full transition-colors cursor-pointer w-full text-center max-w-[130px]">
+                            PENGADUAN
+                        </button>
+                    </div>
+
+                    <!-- MENU 3: KELENGKAPAN BERKAS -->
+                    <div class="flex flex-col items-center">
+                        <button onclick="openSubScreen('berkas')" class="w-20 h-20 rounded-full bg-gradient-to-tr from-amber-600 to-orange-800 border-2 border-amber-500/30 flex items-center justify-center glowing-circle cursor-pointer">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                        </button>
+                        <button onclick="openSubScreen('berkas')" class="mt-3 bg-slate-800/80 hover:bg-amber-600/20 border border-white/5 text-white font-bold text-[10px] tracking-wider uppercase px-4 py-1.5 rounded-full transition-colors cursor-pointer w-full text-center max-w-[130px]">
+                            SYARAT BERKAS
+                        </button>
+                    </div>
+
+                    <!-- MENU 4: CETAK MANDIRI -->
+                    <div class="flex flex-col items-center">
+                        <button onclick="openSubScreen('cetak')" class="w-20 h-20 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-800 border-2 border-emerald-500/30 flex items-center justify-center glowing-circle cursor-pointer">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                            </svg>
+                        </button>
+                        <button onclick="openSubScreen('cetak')" class="mt-3 bg-slate-800/80 hover:bg-emerald-600/20 border border-white/5 text-white font-bold text-[10px] tracking-wider uppercase px-4 py-1.5 rounded-full transition-colors cursor-pointer w-full text-center max-w-[130px]">
+                            CETAK MANDIRI
+                        </button>
+                    </div>
+
+                    <!-- MENU 5: AI ASISTEN -->
+                    <div class="flex flex-col items-center">
+                        <button onclick="openSubScreen('asisten')" class="w-20 h-20 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-800 border-2 border-cyan-500/30 flex items-center justify-center glowing-circle cursor-pointer">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                            </svg>
+                        </button>
+                        <button onclick="openSubScreen('asisten')" class="mt-3 bg-slate-800/80 hover:bg-cyan-600/20 border border-white/5 text-white font-bold text-[10px] tracking-wider uppercase px-4 py-1.5 rounded-full transition-colors cursor-pointer w-full text-center max-w-[130px]">
+                            AI ASISTEN
+                        </button>
+                    </div>
+
+                    <!-- MENU 6: INFORMASI -->
+                    <div class="flex flex-col items-center">
+                        <button onclick="showHelpToast()" class="w-20 h-20 rounded-full bg-gradient-to-tr from-purple-600 to-indigo-800 border-2 border-purple-500/30 flex items-center justify-center glowing-circle cursor-pointer">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </button>
+                        <button onclick="showHelpToast()" class="mt-3 bg-slate-800/80 hover:bg-purple-600/20 border border-white/5 text-white font-bold text-[10px] tracking-wider uppercase px-4 py-1.5 rounded-full transition-colors cursor-pointer w-full text-center max-w-[130px]">
+                            INFORMASI
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- ================= SCREEN 2: DETAIL FUNGSIONALITAS ================= -->
+            
+            <!-- MODUL 1: SURVEY KEPUASAN (IKM) -->
+            <div id="screen-survey" class="hidden animate-fade-in flex-1 flex flex-col justify-center">
+                <div class="bg-slate-900/50 p-5 rounded-2xl border border-white/5">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="text-sm font-bold text-white uppercase tracking-wider">Survei Kepuasan Pelayanan (IKM)</h4>
+                        <button onclick="resetToHome()" class="text-xs text-rose-400 hover:underline">Kembali</button>
+                    </div>
+                    
+                    <div id="ikm-form-step" class="space-y-3 mb-3">
+                        <input type="text" id="ikm-name" class="w-full p-2.5 bg-slate-950/60 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" placeholder="Nama Lengkap Pemohon">
+                        <input type="tel" id="ikm-phone" class="w-full p-2.5 bg-slate-950/60 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" placeholder="Nomor HP Aktif">
+                        <button onclick="unlockIKMButtons()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-xl text-xs cursor-pointer transition-all">Lanjutkan Pilih Nilai</button>
+                    </div>
+                    
+                    <div id="ikm-buttons-area" class="grid grid-cols-4 gap-2 opacity-40 pointer-events-none transition-all">
+                        <button onclick="submitIKM('Sangat Puas', '&#128522;')" class="flex flex-col items-center p-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 rounded-xl transition-all cursor-pointer">
+                            <span class="text-xl mb-1">&#128522;</span><span class="text-[9px] font-bold text-center leading-tight">Sangat Puas</span>
+                        </button>
+                        <button onclick="submitIKM('Puas', '&#128578;')" class="flex flex-col items-center p-2.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-400 rounded-xl transition-all cursor-pointer">
+                            <span class="text-xl mb-1">&#128578;</span><span class="text-[9px] font-bold text-center leading-tight">Puas</span>
+                        </button>
+                        <button onclick="submitIKM('Tidak Puas', '&#128528;')" class="flex flex-col items-center p-2.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 rounded-xl transition-all cursor-pointer">
+                            <span class="text-xl mb-1">&#128528;</span><span class="text-[9px] font-bold text-center leading-tight">Tidak Puas</span>
+                        </button>
+                        <button onclick="submitIKM('Kecewa', '&#128542;')" class="flex flex-col items-center p-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 rounded-xl transition-all cursor-pointer">
+                            <span class="text-xl mb-1">&#128542;</span><span class="text-[9px] font-bold text-center leading-tight">Kecewa</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODUL 2: PENGADUAN & ASPIRASI -->
+            <div id="screen-pengaduan" class="hidden animate-fade-in flex-1 flex flex-col justify-center">
+                <div class="bg-slate-900/50 p-5 rounded-2xl border border-white/5 space-y-3">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="text-sm font-bold text-white uppercase tracking-wider">Pengaduan & Aspirasi</h4>
+                        <button onclick="resetToHome()" class="text-xs text-rose-400 hover:underline">Kembali</button>
+                    </div>
+                    <div class="space-y-2 text-xs">
+                        <input type="text" id="complaint-name" class="w-full p-2 bg-slate-950/60 border border-white/10 rounded-xl text-xs text-white" placeholder="Nama Pelapor">
+                        <input type="tel" id="complaint-phone" class="w-full p-2 bg-slate-950/60 border border-white/10 rounded-xl text-xs text-white" placeholder="Nomor HP Pelapor">
+                        <textarea id="complaint-text" rows="2" class="w-full p-2 bg-slate-950/60 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="Ketik kronologi aduan Anda..."></textarea>
+                        
+                        <div class="flex flex-col gap-1">
+                            <span class="text-[10px] text-slate-400 font-bold uppercase flex items-center">
+                                ?? Lampiran Foto Kejadian
+                            </span>
+                            <input type="file" id="complaint-photo" accept="image/*" class="text-xs text-slate-500 file:py-1 file:px-2 file:rounded file:bg-slate-800 file:border-0 text-[11px] text-white">
+                        </div>
+
+                        <div class="flex items-center justify-between pt-1">
+                            <label class="flex items-center space-x-2 text-slate-400 cursor-pointer text-[11px]">
+                                <input type="checkbox" id="complaint-anon" class="accent-blue-600 w-4 h-4 rounded">
+                                <span>Kirim Rahasia (Anonim)</span>
+                            </label>
+                            <button onclick="submitComplaint()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-1.5 rounded-lg text-[11px] cursor-pointer">Kirim Aduan</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODUL 3: KELENGKAPAN BERKAS -->
+            <div id="screen-berkas" class="hidden animate-fade-in flex-1 flex flex-col justify-center">
+                <div class="bg-slate-900/50 p-5 rounded-2xl border border-white/5">
+                    <div class="flex justify-between items-center mb-3">
+                        <h4 class="text-sm font-bold text-white uppercase tracking-wider">Kelengkapan Berkas Persyaratan</h4>
+                        <button onclick="resetToHome()" class="text-xs text-rose-400 hover:underline">Kembali</button>
+                    </div>
+
+                    <div class="flex justify-center space-x-2 mb-3">
+                        <button id="tab-wni" onclick="switchRequirementsTab('wni')" class="px-4 py-1 rounded-full text-xs font-bold transition-all bg-blue-600 text-white">WNI</button>
+                        <button id="tab-wna" onclick="switchRequirementsTab('wna')" class="px-4 py-1 rounded-full text-xs font-bold transition-all bg-slate-800 text-slate-400">WNA</button>
+                    </div>
+
+                    <!-- Syarat WNI -->
+                    <div id="doc-content-wni" class="space-y-2 max-h-[200px] overflow-y-auto pr-1 text-xs text-slate-300 custom-scroll text-left">
+                        <p class="font-bold text-white text-[11px] border-l-2 border-blue-600 pl-1.5 py-0.5 rounded-r">Paspor Dewasa Baru / Perpanjangan</p>
+                        <label class="flex items-start space-x-2 py-0.5"><input type="checkbox" class="mt-0.5 accent-blue-600 rounded w-4 h-4"><span>e-KTP Asli & Fotokopi A4</span></label>
+                        <label class="flex items-start space-x-2 py-0.5"><input type="checkbox" class="mt-0.5 accent-blue-600 rounded w-4 h-4"><span>Kartu Keluarga Asli & Fotokopi</span></label>
+                        <label class="flex items-start space-x-2 py-0.5"><input type="checkbox" class="mt-0.5 accent-blue-600 rounded w-4 h-4"><span>Akta Lahir / Buku Nikah / Ijazah</span></label>
+                    </div>
+
+                    <!-- Syarat WNA -->
+                    <div id="doc-content-wna" class="space-y-2 max-h-[200px] overflow-y-auto pr-1 text-xs text-slate-300 custom-scroll hidden text-left">
+                        <p class="font-bold text-white text-[11px] border-l-2 border-amber-500 pl-1.5 py-0.5 rounded-r">Perpanjangan ITAS / ITAP</p>
+                        <label class="flex items-start space-x-2 py-0.5"><input type="checkbox" class="mt-0.5 accent-amber-600 rounded w-4 h-4"><span>Paspor Kebangsaan Asli & Sah</span></label>
+                        <label class="flex items-start space-x-2 py-0.5"><input type="checkbox" class="mt-0.5 accent-amber-600 rounded w-4 h-4"><span>Surat Penjaminan dari Sponsor</span></label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODUL 4: CETAK MANDIRI -->
+            <div id="screen-cetak" class="hidden animate-fade-in flex-1 flex flex-col justify-center">
+                <div class="bg-slate-900/50 p-5 rounded-2xl border border-white/5 text-center">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="text-sm font-bold text-white uppercase tracking-wider">Cetak Mandiri Berkas</h4>
+                        <button onclick="resetToHome()" class="text-xs text-rose-400 hover:underline">Kembali</button>
+                    </div>
+                    <p class="text-xs text-slate-400 mb-4 text-left leading-relaxed">
+                        Silakan akses portal di bawah untuk mengunggah dokumen Anda ke cloud printer Kiosk Kantor Imigrasi Kelas I Non TPI Bekasi secara mandiri.
+                    </p>
+                    <a href="https://kios-imigrasi-bekasi-1084198808695.asia-southeast1.run.app" target="_blank" class="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 px-6 rounded-xl text-xs shadow-md w-full hover:scale-[1.02] transition-transform">
+                        ?? Buka Portal Cetak Mandiri
+                    </a>
+                </div>
+            </div>
+
+            <!-- MODUL 5: AI ASISTEN (Peningkatan Komprehensif Keimigrasian) -->
+            <div id="screen-asisten" class="hidden animate-fade-in flex-1 flex flex-col justify-center">
+                <div class="bg-slate-900/50 p-4 rounded-2xl border border-white/5 flex flex-col h-[320px]">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="text-xs font-bold text-white uppercase tracking-wider">RUTAMI AI Customer Assistant</h4>
+                        <button onclick="resetToHome()" class="text-xs text-rose-400 hover:underline">Kembali</button>
+                    </div>
+
+                    <!-- Stream percakapan -->
+                    <div id="ai-chat-stream" class="flex-1 p-2 bg-slate-950/60 border border-white/5 rounded-xl flex flex-col space-y-2 overflow-y-auto custom-scroll text-left mb-2">
+                        <div class="bg-slate-800 p-2 rounded-r-xl rounded-bl-xl text-[11px] text-slate-200">
+                            ?? Halo! Saya **RUTAMI**, AI Keimigrasian Komprehensif Anda[cite: 1, 2]. Silakan tanyakan hal apa pun seperti Paspor WNI (baru/perpanjang, paspor anak, paspor hilang/rusak), aturan e-Visa WNA, KITAS/KITAP, ketentuan denda overstay, pelintasan Autogate, EPO/ERP, atau alamat Kantor Imigrasi Bekasi[cite: 1, 2].
+                        </div>
+                    </div>
+
+                    <!-- Input mini untuk area chat asisten -->
+                    <div class="flex items-center bg-slate-950/60 border border-white/10 rounded-xl p-1">
+                        <input type="text" id="ai-input-box" onkeydown="if(event.key === 'Enter') handleAISubmit()" placeholder="Ketik pertanyaan imigrasi di sini..." class="flex-1 bg-transparent border-none text-[11px] text-slate-200 px-2 py-1.5 focus:outline-none">
+                        <button onclick="handleAISubmit()" class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold">Kirim</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FOOTER INFO BRUSH -->
+            <footer class="mt-4 pt-3 border-t border-white/5 text-[9px] text-slate-600 text-center flex justify-between items-center font-mono">
+                <span>� 2026 Kantor Imigrasi Kelas I Non TPI Bekasi</span>
+                <span>Portal Sistem Rutami v2.4</span>
+            </footer>
+
+        </div>
+    </div>
+
+    <!-- AUDIO BROADCAST NOTIFICATION CHANNELS -->
+    <script>
+        const immiChannel = new BroadcastChannel('immi_realtime_bridge');
+        let soundMuted = false;
+
+        // Hubungkan ke MQTT Broker Publik untuk Realtime Lintas Perangkat (HP -> PC Admin)
+        const mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
+        mqttClient.on('connect', () => {
+            console.log('Mqtt Terhubung untuk sinkronisasi HP/PC');
+        });
+
+        // Beralih ke submenu fungsionalitas dan menyembunyikan Menu Utama 3x2
+        function openSubScreen(screenId) {
+            document.getElementById('screen-menu-utama').classList.add('hidden');
+            
+            // Sembunyikan semua sub screen terlebih dahulu
+            document.getElementById('screen-survey').classList.add('hidden');
+            document.getElementById('screen-pengaduan').classList.add('hidden');
+            document.getElementById('screen-berkas').classList.add('hidden');
+            document.getElementById('screen-cetak').classList.add('hidden');
+            document.getElementById('screen-asisten').classList.add('hidden');
+
+            // Munculkan screen yang dipilih
+            document.getElementById(`screen-${screenId}`).classList.remove('hidden');
+        }
+
+        // Kembali ke Menu Utama
+        function resetToHome() {
+            document.getElementById('screen-survey').classList.add('hidden');
+            document.getElementById('screen-pengaduan').classList.add('hidden');
+            document.getElementById('screen-berkas').classList.add('hidden');
+            document.getElementById('screen-cetak').classList.add('hidden');
+            document.getElementById('screen-asisten').classList.add('hidden');
+
+            document.getElementById('screen-menu-utama').classList.remove('hidden');
+        }
+
+        function toggleVoiceMute() {
+            soundMuted = !soundMuted;
+            const btn = document.getElementById('btn-sound');
+            if (soundMuted) {
+                btn.classList.add('bg-rose-600/30');
+                btn.innerHTML = `<span class="text-rose-400 font-bold text-xs">OFF</span>`;
+            } else {
+                btn.classList.remove('bg-rose-600/30');
+                btn.innerHTML = `
+                    <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path>
+                    </svg>`;
+            }
+        }
+
+        function showHelpToast() {
+            alert("?? INFORMASI KIOSK\n\nSilakan pilih salah satu dari menu layanan utama di layar Anda untuk melangsungkan pelayanan mandiri. Gunakan bar samping kiri untuk kembali ke beranda.");
+        }
+
+        function switchRequirementsTab(type) {
+            const btnWni = document.getElementById('tab-wni');
+            const btnWna = document.getElementById('tab-wna');
+            const contentWni = document.getElementById('doc-content-wni');
+            const contentWna = document.getElementById('doc-content-wna');
+            if(type === 'wni') {
+                btnWni.className = "px-4 py-1 rounded-full text-xs font-bold transition-all bg-blue-600 text-white";
+                btnWna.className = "px-4 py-1 rounded-full text-xs font-bold transition-all bg-slate-800 text-slate-400";
+                contentWni.classList.remove('hidden'); contentWna.classList.add('hidden');
+            } else {
+                btnWna.className = "px-4 py-1 rounded-full text-xs font-bold transition-all bg-blue-600 text-white";
+                btnWni.className = "px-4 py-1 rounded-full text-xs font-bold transition-all bg-slate-800 text-slate-400";
+                contentWna.classList.remove('hidden'); contentWni.classList.add('hidden');
+            }
+        }
+
+        function unlockIKMButtons() {
+            const name = document.getElementById('ikm-name').value.trim();
+            const phone = document.getElementById('ikm-phone').value.trim();
+            if(!name || !phone) return alert("Harap isi Nama dan Nomor HP.");
+            document.getElementById('ikm-buttons-area').classList.remove('opacity-40', 'pointer-events-none');
+        }
+
+        function submitIKM(score, emoji) {
+            const name = document.getElementById('ikm-name').value.trim();
+            const phone = document.getElementById('ikm-phone').value.trim();
+
+            const payload = {
+                type: 'IKM_SUBMIT',
+                data: { name, phone, score, emoji, time: new Date().toLocaleTimeString('id-ID') + ' WIB' }
+            };
+
+            // Kirim secara lokal (BroadcastChannel)
+            immiChannel.postMessage(payload);
+
+            // Kirim secara global lewat internet (MQTT)
+            if (mqttClient && mqttClient.connected) {
+                mqttClient.publish('kanim_bekasi_rutami_realtime', JSON.stringify(payload));
+            }
+
+            alert(`Survei ${score} terkirim real-time!`);
+            document.getElementById('ikm-name').value = "";
+            document.getElementById('ikm-phone').value = "";
+            document.getElementById('ikm-buttons-area').classList.add('opacity-40', 'pointer-events-none');
+            resetToHome();
+        }
+
+        function submitComplaint() {
+            const name = document.getElementById('complaint-name').value.trim();
+            const phone = document.getElementById('complaint-phone').value.trim();
+            const text = document.getElementById('complaint-text').value.trim();
+            const anon = document.getElementById('complaint-anon').checked;
+            const photoFile = document.getElementById('complaint-photo').files[0];
+            
+            if(!name || !phone || !text) return alert("Harap lengkapi semua isian aduan.");
+
+            const sendData = (base64Img) => {
+                const payload = {
+                    type: 'COMPLAINT_SUBMIT',
+                    data: { 
+                        name: anon ? 'Anonim (Rahasia)' : name, 
+                        phone: anon ? '-' : phone, 
+                        text, 
+                        image: base64Img || null,
+                        time: new Date().toLocaleTimeString('id-ID') + ' WIB' 
+                    }
+                };
+
+                // Kirim secara lokal
+                immiChannel.postMessage(payload);
+
+                // Kirim secara global lewat internet (MQTT)
+                if (mqttClient && mqttClient.connected) {
+                    mqttClient.publish('kanim_bekasi_rutami_realtime', JSON.stringify(payload));
+                }
+
+                alert("Aduan terkirim secara real-time ke Admin Dashboard!");
+                document.getElementById('complaint-name').value = "";
+                document.getElementById('complaint-phone').value = "";
+                document.getElementById('complaint-text').value = "";
+                document.getElementById('complaint-photo').value = "";
+                document.getElementById('complaint-anon').checked = false;
+                resetToHome();
+            };
+
+            if (photoFile) {
+                const reader = new FileReader();
+                reader.onloadend = function() { sendData(reader.result); };
+                reader.readAsDataURL(photoFile);
+            } else {
+                sendData(null);
+            }
+        }
+
+        function handleAISubmit() {
+            const box = document.getElementById('ai-input-box');
+            const txt = box.value.trim(); if(!txt) return;
+            const stream = document.getElementById('ai-chat-stream');
+            
+            const uB = document.createElement('div');
+            uB.className = "bg-blue-600 text-white p-2 rounded-l-xl rounded-br-xl max-w-[85%] self-end ml-auto text-xs text-left mb-2";
+            uB.innerText = txt;
+            stream.appendChild(uB);
+            box.value = "";
+            
+            // Streaming / loader
+            const loadingB = document.createElement('div');
+            loadingB.className = "bg-slate-800 p-2 rounded-r-xl rounded-bl-xl max-w-[85%] text-xs text-slate-200 text-left mb-2 animate-pulse";
+            loadingB.innerText = "Sedang menulis tanggapan imigrasi...";
+            stream.appendChild(loadingB);
+            stream.scrollTop = stream.scrollHeight;
+
+            setTimeout(() => {
+                loadingB.remove();
+                const aB = document.createElement('div');
+                aB.className = "bg-slate-800 p-2 rounded-r-xl rounded-bl-xl max-w-[85%] text-xs text-slate-200 text-left mb-2 leading-relaxed";
+                
+                let q = txt.toLowerCase();
+                
+                if (q.includes('biaya') || q.includes('tarif') || q.includes('harga') || q.includes('pnbp') || q.includes('bayar')) {
+                    aB.innerHTML = "?? <b>Biaya PNBP Resmi Keimigrasian:</b><br>" +
+                                   "� Paspor Biasa Non-Elektronik 48 Halaman: Rp350.000<br>" +
+                                   "� Paspor Elektronik (E-Paspor): Rp650.000<br>" +
+                                   "� Layanan Percepatan Paspor (Selesai Hari yang Sama): Tambahan Rp1.000.000<br>" +
+                                   "� Surat Perjalanan Laksana Paspor (SPLP) untuk WNA/WNI: Rp100.000<br>" +
+                                   "� Perpanjangan Izin Tinggal Kunjungan (VKSK): Rp500.000<br>" +
+                                   "� Pembayaran resmi wajib disetor via teller Bank, ATM, M-Banking, atau Kantor Pos menggunakan Kode Billing MPN G2.";
+                } else if (q.includes('overstay') || q.includes('lewat batas') || q.includes('tinggal melebihi') || q.includes('denda overstay')) {
+                    aB.innerHTML = "?? <b>Aturan & Denda Overstay Warga Negara Asing (WNA):</b><br>" +
+                                   "� Berdasarkan PP No. 28 Tahun 2019, denda overstay adalah <b>Rp1.000.000,- per hari</b>.<br>" +
+                                   "� Jika overstay kurang dari 60 hari: Penjamin/WNA harus membayar biaya denda tersebut langsung di Kantor Imigrasi sebelum diizinkan meninggalkan wilayah Indonesia.<br>" +
+                                   "� Jika overstay melebihi 60 hari: WNA akan dikenakan tindakan administrasi keimigrasian berupa <b>Deportasi</b> dan dimasukkan ke dalam daftar Penangkalan (Cekal/Blacklist) masuk ke Indonesia.";
+                } else if (q.includes('hilang') || q.includes('rusak') || q.includes('denda paspor')) {
+                    aB.innerHTML = "?? <b>Aturan Paspor Hilang atau Rusak (WNI):</b><br>" +
+                                   "� Penggantian paspor karena hilang dikenakan biaya denda sebesar <b>Rp1.000.000,-</b>.<br>" +
+                                   "� Penggantian paspor karena rusak dikenakan denda sebesar <b>Rp500.000,-</b>.<br>" +
+                                   "� <i>Alur pengurusan:</i> Anda wajib mengikuti tahapan Berita Acara Pemeriksaan (BAP) oleh Seksi Intelijen dan Penindakan Keimigrasian di Kantor Imigrasi.<br>" +
+                                   "� <i>Syarat BAP:</i> Surat Kehilangan asli dari Kepolisian, KTP, KK, Akta Kelahiran/Buku Nikah asli, serta berkas paspor yang rusak (jika rusak).";
+                } else if (q.includes('anak') || q.includes('bayi') || q.includes('bawah umur') || q.includes('balita')) {
+                    aB.innerHTML = "?? <b>Persyaratan Paspor Anak (Di Bawah 17 Tahun):</b><br>" +
+                                   "1. Akta Kelahiran anak asli & fotokopi.<br>" +
+                                   "2. Kartu Keluarga (KK) asli & fotokopi yang memuat nama anak.<br>" +
+                                   "3. e-KTP kedua orang tua kandung asli & fotokopi.<br>" +
+                                   "4. Buku Nikah / Akta Perkawinan orang tua kandung asli & fotokopi.<br>" +
+                                   "5. Paspor kedua orang tua kandung (jika ada).<br>" +
+                                   "6. Surat Pernyataan Orang Tua bermaterai Rp10.000.<br>" +
+                                   "<i>*Catatan: Anak dan kedua orang tua wajib hadir di Kantor Imigrasi saat wawancara & foto.</i>";
+                } else if (q.includes('syarat') || q.includes('persyaratan') || q.includes('paspor baru') || q.includes('perpanjang paspor') || q.includes('bikin paspor')) {
+                    aB.innerHTML = "?? <b>Persyaratan Permohonan Paspor WNI Dewasa:</b><br>" +
+                                   "� e-KTP asli (masih berlaku & data sesuai).<br>" +
+                                   "� Kartu Keluarga (KK) asli.<br>" +
+                                   "� Akta Kelahiran / Surat Nikah / Ijazah Sekolah asli (pilih salah satu yang memuat Nama, Tanggal Lahir, Tempat Lahir, & Nama Orang Tua secara konsisten).<br>" +
+                                   "� Paspor lama (khusus permohonan perpanjangan/penggantian paspor habis masa berlaku).<br>" +
+                                   "� Semua berkas asli wajib dibawa saat wawancara, fotokopi dibuat di kertas ukuran A4 tanpa dipotong.";
+                } else if (q.includes('kitas') || q.includes('itas') || q.includes('kitap') || q.includes('itap') || q.includes('izin tinggal') || q.includes('sponsor')) {
+                    aB.innerHTML = "?? <b>Izin Tinggal Terbatas (ITAS/KITAS) & Tetap (ITAP/KITAP):</b><br>" +
+                                   "� KITAS diajukan oleh Penjamin/Sponsor di Indonesia secara online untuk WNA yang bekerja (TKA), penyatuan keluarga (nikah campur), pelajar, maupun investor.<br>" +
+                                   "� KITAP diajukan setelah pemegang KITAS tinggal di Indonesia selama minimal 2 tahun berturut-turut (untuk kawin campur atau tenaga ahli senior).<br>" +
+                                   "� Alur permohonan diproses online melalui portal akun penjamin, dilanjutkan dengan perekaman biometrik (foto & sidik jari) di Kantor Imigrasi.";
+                } else if (q.includes('visa') || q.includes('e-visa') || q.includes('voa') || q.includes('visa on arrival') || q.includes('kunjungan')) {
+                    aB.innerHTML = "?? <b>Aturan Visa & Visa on Arrival (VoA) Elektronik:</b><br>" +
+                                   "� Visa Kunjungan (B211A) atau e-Voa kini wajib diajukan secara online oleh WNA atau Penjamin melalui website resmi Direktorat Jenderal Imigrasi di <b>evisa.imigrasi.go.id</b>.<br>" +
+                                   "� Biaya e-Voa adalah Rp500.000,- berlaku untuk tinggal selama 30 hari dan dapat diperpanjang online 1 kali selama 30 hari berikutnya.<br>" +
+                                   "� Pembayaran visa diproses instan online menggunakan kartu kredit/debit online berlogo Visa/Mastercard.";
+                } else if (q.includes('epo') || q.includes('erp') || q.includes('keluar indonesia')) {
+                    aB.innerHTML = "?? <b>Layanan EPO & ERP Orang Asing:</b><br>" +
+                                   "� <b>Exit Permit Only (ITAS/KITAS batal):</b> Wajib diajukan ke Kantor Imigrasi oleh sponsor jika WNA ingin mengakhiri masa kerjanya atau pindah penjamin sebelum masa berlaku KITAS habis.<br>" +
+                                   "� <b>Exit Re-entry Permit (ERP) Tidak Kembali:</b> Diajukan jika KITAS/ITAS masih berlaku tetapi WNA sudah berada di luar negeri dan memutuskan tidak akan kembali lagi ke Indonesia.";
+                } else if (q.includes('autogate') || q.includes('bandara') || q.includes('lintas batas')) {
+                    aB.innerHTML = "?? <b>Sistem Autogate di Bandara Internasional:</b><br>" +
+                                   "� Autogate kini beroperasi penuh di Bandara Soekarno-Hatta (Jakarta) dan Ngurah Rai (Bali).<br>" +
+                                   "� Dapat digunakan secara gratis oleh WNI pemegang Paspor Biasa & Paspor Elektronik (e-Paspor).<br>" +
+                                   "� Orang Asing (WNA) pemegang e-Visa atau e-Voa juga dapat langsung melintasi gerbang otomatis tanpa perlu antre di loket manual petugas.";
+                } else if (q.includes('alamat') || q.includes('lokasi') || q.includes('jam') || q.includes('buka') || q.includes('tutup') || q.includes('hari')) {
+                    aB.innerHTML = "?? <b>Lokasi & Jam Operasional Kantor Imigrasi Kelas I Non TPI Bekasi:</b><br>" +
+                                   "� <b>Alamat Kantor Utama:</b> Jl. Perjuangan No. 100, Marga Mulya, Kec. Bekasi Utara, Kota Bekasi, Jawa Barat 17142.<br>" +
+                                   "� <b>Hari Pelayanan:</b> Senin s.d. Jumat (Sabtu-Minggu libur).<br>" +
+                                   "� <b>Jam Buka Layanan:</b> 08.00 s.d. 16.00 WIB (Waktu Istirahat Petugas: 12.00 - 13.00 WIB, khusus Jumat: 11.30 - 13.00 WIB).";
+                } else if (q.includes('cekal') || q.includes('pencegahan') || q.includes('penangkalan') || q.includes('blacklist')) {
+                    aB.innerHTML = "? <b>Tindakan Pencegahan & Penangkalan (Cekal):</b><br>" +
+                                   "� <b>Pencegahan:</b> Pelarangan sementara bagi Warga Negara Indonesia (WNI) untuk keluar negeri berdasarkan permintaan instansi penegak hukum (KPK, Kejaksaan, Kepolisian, Bea Cukai, Dirjen Pajak, dll).<br>" +
+                                   "� <b>Penangkalan:</b> Pelarangan masuk bagi Orang Asing (WNA) ke wilayah Indonesia karena rekam jejak kriminal, overstay parah, atau dianggap membahayakan keamanan nasional.";
+                } else {
+                    aB.innerHTML = "?? <b>Sistem Informasi Keimigrasian Terpadu Kanim Bekasi:</b><br>" +
+                                   "� Untuk permohonan paspor WNI wajib mendaftar online melalui aplikasi smartphone resmi <b>M-Paspor</b>.<br>" +
+                                   "� Untuk layanan permohonan Visa, e-VoA, KITAS, KITAP Orang Asing, silakan akses portal <b>evisa.imigrasi.go.id</b>.<br>" +
+                                   "� Silakan ajukan pertanyaan spesifik seperti: <i>'biaya paspor'</i>, <i>'overstay'</i>, <i>'paspor hilang'</i>, <i>'syarat paspor anak'</i>, atau <i>'alamat kanim'</i>.";
+                }
+                stream.appendChild(aB);
+                stream.scrollTop = stream.scrollHeight;
+            }, 800);
+        }
+    </script>
+</body>
+</html>
